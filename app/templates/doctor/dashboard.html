@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <h2 class="mb-4">Heart Disease Prediction</h2>
+
+        {% if prediction %}
+        <div class="alert alert-info mt-4">
+            <h4>Prediction Result: {{ prediction }}</h4>
+            <p>The model predicts a <strong>{{ 'High' if prediction == 'Yes' else 'Low' }}</strong> risk of heart
+                disease.</p>
+            <a href="{{ url_for('main.download_report') }}" class="btn btn-secondary mt-2">Download PDF Report</a>
+        </div>
+        {% endif %}
+
+        <form method="post">
+            {{ form.hidden_tag() }}
+            <div class="mb-3">
+                {{ form.age_group.label(class="form-label") }}
+                {{ form.age_group(class="form-select") }}
+            </div>
+            <div class="mb-3">
+                {{ form.sex.label(class="form-label") }}
+                {{ form.sex(class="form-select") }}
+            </div>
+            <div class="mb-3">
+                {{ form.bmi.label(class="form-label") }}
+                {{ form.bmi(class="form-control") }}
+            </div>
+            <div class="mb-3">
+                {{ form.smoked_100_cigarettes.label(class="form-label") }}
+                {{ form.smoked_100_cigarettes(class="form-select") }}
+            </div>
+            <div class="mb-3">
+                {{ form.diabetes_diagnosis.label(class="form-label") }}
+                {{ form.diabetes_diagnosis(class="form-select") }}
+            </div>
+            <div class="mb-3">
+                {{ form.heart_attack_history.label(class="form-label") }}
+                {{ form.heart_attack_history(class="form-select") }}
+            </div>
+            <div class="mb-3">
+                {{ form.stroke_history.label(class="form-label") }}
+                {{ form.stroke_history(class="form-select") }}
+            </div>
+            <div class="mb-3">
+                {{ form.submit(class="btn btn-primary") }}
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

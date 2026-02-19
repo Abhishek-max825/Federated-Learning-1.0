@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h2>Hospital Dashboard</h2>
+    <p>Node: {{ current_user.hospital.name if current_user.hospital else 'Hospital Node 1 (Simulated)' }}</p>
+
+    <div class="card mt-4">
+        <div class="card-header">Local Training</div>
+        <div class="card-body">
+            <h5 class="card-title">Participate in Federated Learning</h5>
+            <p class="card-text">Train the local model on your private dataset and send updates to the central server.
+            </p>
+
+            <div class="mb-3">
+                <label for="dataset-file" class="form-label">Upload Dataset (Optional)</label>
+                <input class="form-control" type="file" id="dataset-file" accept=".csv">
+                <div class="form-text">If not provided, the default simulated dataset will be used.</div>
+            </div>
+
+            <button id="train-btn" class="btn btn-primary">Train Local Model</button>
+            <div id="train-status" class="mt-3"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.getElementById('train-btn').onclick = async () => {
+        const btn = document.getElementById('train-btn');
+        const statusDiv = document.getElementById('train-status');
+
+        btn.disabled = true;
+        btn.innerText = "Training...";
+        statusDiv.innerText = "Training in progress...";
+
+        try {
+            const fileInput = document.getElementById('dataset-file');
+            const formData = new FormData();
+            if (fileInput.files.length > 0) {
+                formData.append('file', fileInput.files[0]);
+            }
+
+            const res = await fetch('/api/fl/train', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                showToast(data.message, 'success');
+                statusDiv.innerText = data.message;
+            } else {
+                showToast(data.error || "Training failed", 'error');
+                statusDiv.innerText = "Error: " + (data.error || "Unknown error");
+            }
+        } catch (e) {
+            console.error(e);
+            showToast("Network error during training", 'error');
+            statusDiv.innerText = "Network error.";
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "Train Local Model";
+        }
+    };
+</script>
+{% endblock %}

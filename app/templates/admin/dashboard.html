@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h2>Admin Dashboard</h2>
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Federated Learning Control</div>
+                <div class="card-body">
+                    <p>Manage the FL process.</p>
+                    <button id="start-round-btn" class="btn btn-primary mb-2">Start New Round</button>
+                    <button id="aggregate-btn" class="btn btn-success mb-2">Aggregate Updates</button>
+                    <div id="action-status" class="mt-2"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">System Status</div>
+                <div class="card-body">
+                    <button id="refresh-status-btn" class="btn btn-sm btn-outline-secondary float-end">Refresh</button>
+                    <h5 class="card-title">FL Status</h5>
+                    <ul class="list-group list-group-flush" id="status-list">
+                        <li class="list-group-item">Round: <span id="round-num">-</span></li>
+                        <li class="list-group-item">Clients Updated: <span id="clients-updated">-</span></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Global Model Accuracy</div>
+                <div class="card-body">
+                    <canvas id="accuracyChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Training Loss</div>
+                <div class="card-body">
+                    <canvas id="lossChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    User Management
+                    <button class="btn btn-sm btn-primary float-end" data-bs-toggle="modal"
+                        data-bs-target="#addUserModal">Add User</button>
+                </div>
+                <div class="card-body">
+                    <table class="table table-striped" id="user-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Username</th>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Hospital</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Users loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add User Modal -->
+    <div class="modal fade" id="addUserModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add New User</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addUserForm">
+                        <div class="mb-3">
+                            <label class="form-label">Username</label>
+                            <input type="text" class="form-control" name="username" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" name="email" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Password</label>
+                            <input type="password" class="form-control" name="password" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Role</label>
+                            <select class="form-select" name="role" required>
+                                <option value="Admin">Admin</option>
+                                <option value="Doctor">Doctor</option>
+                                <option value="Hospital Node">Hospital Node</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Hospital ID (Optional)</label>
+                            <input type="number" class="form-control" name="hospital_id">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" onclick="submitAddUser()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">Recent Audit Logs</div>
+                <div class="card-body">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Action</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in logs %}
+                            <tr>
+                                <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                <td>{{ log.action }}</td>
+                                <td>{{ log.details }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    async function updateStatus() {
+        try {
+            const res = await fetch('/api/fl/status');
+            const data = await res.json();
+            document.getElementById('round-num').innerText = data.round;
+            document.getElementById('clients-updated').innerText = data.clients_updated;
+
+            // Fetch history for charts
+            const histRes = await fetch('/api/fl/history');
+            const history = await histRes.json();
+            updateCharts(history);
+
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    // User Management Functions
+    async function loadUsers() {
+        try {
+            const res = await fetch('/api/users');
+            if (!res.ok) return; // Maybe not admin or error
+            const users = await res.json();
+            const tbody = document.querySelector('#user-table tbody');
+            tbody.innerHTML = '';
+            users.forEach(u => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${u.id}</td>
+                    <td>${u.username}</td>
+                    <td>${u.email}</td>
+                    <td><span class="badge bg-secondary">${u.role}</span></td>
+                    <td>${u.hospital}</td>
+                    <td>
+                        <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">Delete</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        } catch (e) {
+            console.error("Error loading users:", e);
+        }
+    }
+
+    async function submitAddUser() {
+        const form = document.getElementById('addUserForm');
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData.entries());
+
+        // Convert hospital_id to int if present, else null
+        if (data.hospital_id) data.hospital_id = parseInt(data.hospital_id);
+        else delete data.hospital_id;
+
+        try {
+            const res = await fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await res.json();
+
+            if (res.ok) {
+                showToast(result.message, 'success');
+                // Close modal
+                const modalEl = document.getElementById('addUserModal');
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                modal.hide();
+                form.reset();
+                loadUsers();
+            } else {
+                showToast(result.error, 'error');
+            }
+        } catch (e) {
+            console.error(e);
+            showToast('Error creating user', 'error');
+        }
+    }
+
+    async function deleteUser(id) {
+        if (!confirm('Are you sure you want to delete this user?')) return;
+
+        try {
+            const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+            const result = await res.json();
+            if (res.ok) {
+                showToast(result.message, 'success');
+                loadUsers();
+            } else {
+                showToast(result.error, 'error');
+            }
+        } catch (e) {
+            console.error(e);
+            showToast('Error deleting user', 'error');
+        }
+    }
+
+    let accuracyChart, lossChart;
+
+    function updateCharts(history) {
+        const rounds = history.rounds;
+
+        if (!accuracyChart) {
+            const ctx1 = document.getElementById('accuracyChart').getContext('2d');
+            accuracyChart = new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: rounds,
+                    datasets: [{
+                        label: 'Accuracy',
+                        data: history.accuracy,
+                        borderColor: 'rgb(75, 192, 192)',
+                        tension: 0.1
+                    }]
+                }
+            });
+
+            const ctx2 = document.getElementById('lossChart').getContext('2d');
+            lossChart = new Chart(ctx2, {
+                type: 'line',
+                data: {
+                    labels: rounds,
+                    datasets: [{
+                        label: 'Loss',
+                        data: history.loss,
+                        borderColor: 'rgb(255, 99, 132)',
+                        tension: 0.1
+                    }]
+                }
+            });
+        } else {
+            accuracyChart.data.labels = rounds;
+            accuracyChart.data.datasets[0].data = history.accuracy;
+            accuracyChart.update();
+
+            lossChart.data.labels = rounds;
+            lossChart.data.datasets[0].data = history.loss;
+            lossChart.update();
+        }
+    }
+
+    document.getElementById('start-round-btn').onclick = async () => {
+        const res = await fetch('/api/fl/start_round', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+            showToast(data.message, 'success');
+        } else {
+            showToast(data.error || 'Error starting round', 'error');
+        }
+        updateStatus();
+    };
+
+    document.getElementById('aggregate-btn').onclick = async () => {
+        const res = await fetch('/api/fl/aggregate', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+            showToast(data.message, 'success');
+        } else {
+            showToast(data.error || 'Error aggregating', 'error');
+        }
+        updateStatus();
+    };
+
+    document.getElementById('refresh-status-btn').onclick = updateStatus;
+
+    // Initial load
+    updateStatus();
+    loadUsers();
+</script>
+{% endblock %}
