@@ -39,7 +39,7 @@ Thumbs.db
 # Logs
 *.log
 
-# Data files (large CSVs/models – uncomment if needed)
-# *.csv
+# Large data files (too big for GitHub)
+heart_disease_dataset/BRFSS_2022.csv
 # *.pkl
 # *.h5
