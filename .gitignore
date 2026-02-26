@@ -43,3 +43,8 @@ Thumbs.db
 heart_disease_dataset/BRFSS_2022.csv
 # *.pkl
 # *.h5
+
+# FL Generated folders
+app/fl/saved_models/
+app/uploads/
+heart_disease_dataset/hospital_client*.csv

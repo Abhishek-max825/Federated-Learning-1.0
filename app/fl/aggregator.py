@@ -9,6 +9,14 @@ class FLAggregator:
         self.client_sizes = []
         self.history = {'rounds': [], 'accuracy': [], 'loss': []} # Added for analytics
 
+    def reset(self):
+        """Reset the federated learning state completely."""
+        self.global_model = FLModel()
+        self.round = 0
+        self.client_weights = []
+        self.client_sizes = []
+        self.history = {'rounds': [], 'accuracy': [], 'loss': []}
+
     def initialize_global_model(self):
         # Initialize with random weights or load previous
         # For SGDClassifier, we need to fit it once to initialize coef_ and intercept_ dimensions
@@ -35,18 +43,21 @@ class FLAggregator:
         total_samples = sum(self.client_sizes)
         
         # Initialize aggregates
-        agg_coef = np.zeros_like(self.client_weights[0]['coef'])
-        agg_intercept = np.zeros_like(self.client_weights[0]['intercept'])
+        import torch
+        agg_weights = {}
+        first_weights = self.client_weights[0]
+        for k in first_weights.keys():
+            agg_weights[k] = torch.zeros_like(first_weights[k])
 
         for weights, n_samples in zip(self.client_weights, self.client_sizes):
-            agg_coef += weights['coef'] * n_samples
-            agg_intercept += weights['intercept'] * n_samples
-
-        agg_coef /= total_samples
-        agg_intercept /= total_samples
+            for k in weights.keys():
+                agg_weights[k] += weights[k] * n_samples
+                
+        for k in agg_weights.keys():
+            agg_weights[k] /= total_samples
 
         # Update global model
-        self.global_model.set_weights({'coef': agg_coef, 'intercept': agg_intercept})
+        self.global_model.set_weights(agg_weights)
         
         # Record history (Simulated accuracy improvement for demo)
         # In real FL, we would evaluate on a held-out confirmation set here.

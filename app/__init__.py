@@ -9,6 +9,13 @@ migrate = Migrate()
 login = LoginManager()
 login.login_view = 'auth.login'
 
+@login.unauthorized_handler
+def unauthorized():
+    from flask import request, jsonify, redirect, url_for
+    if request.blueprint == 'api' or request.path.startswith('/api/'):
+        return jsonify({'error': 'Unauthorized', 'message': 'Session expired or not logged in'}), 401
+    return redirect(url_for(login.login_view, next=request.url))
+
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)

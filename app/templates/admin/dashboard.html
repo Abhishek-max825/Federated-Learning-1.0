@@ -11,6 +11,7 @@
                     <p>Manage the FL process.</p>
                     <button id="start-round-btn" class="btn btn-primary mb-2">Start New Round</button>
                     <button id="aggregate-btn" class="btn btn-success mb-2">Aggregate Updates</button>
+                    <button id="reset-fl-btn" class="btn btn-danger mb-2 float-end">Reset FL State</button>
                     <div id="action-status" class="mt-2"></div>
                 </div>
             </div>
@@ -44,6 +45,58 @@
                 <div class="card-header">Training Loss</div>
                 <div class="card-body">
                     <canvas id="lossChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">Model Validation Hub</div>
+                <div class="card-body">
+                    <p>Upload a held-out test dataset to calculate the Global Model's real-world metrics (Precision,
+                        Recall, F1-Score).</p>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <input class="form-control mb-2" type="file" id="validation-file" accept=".csv">
+                            <button id="evaluate-btn" class="btn btn-warning">Evaluate Global Model</button>
+                        </div>
+                        <div class="col-md-6">
+                            <div id="validation-results" class="alert alert-info d-none">
+                                <strong>Validation Results:</strong>
+                                <ul class="mb-0">
+                                    <li>Accuracy: <span id="val-acc">-</span></li>
+                                    <li>Precision: <span id="val-prec">-</span></li>
+                                    <li>Recall: <span id="val-rec">-</span></li>
+                                    <li>F1-Score: <span id="val-f1">-</span></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">Model History & Rollback</div>
+                <div class="card-body">
+                    <table class="table table-sm table-striped" id="history-table">
+                        <thead>
+                            <tr>
+                                <th>Round</th>
+                                <th>Accuracy</th>
+                                <th>Loss</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- History loaded here -->
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -125,7 +178,10 @@
     <div class="row mt-4">
         <div class="col-md-12">
             <div class="card">
-                <div class="card-header">Recent Audit Logs</div>
+                <div class="card-header">
+                    Recent Audit Logs
+                    <button id="clear-logs-btn" class="btn btn-sm btn-danger float-end">Clear Logs</button>
+                </div>
                 <div class="card-body">
                     <table class="table table-striped">
                         <thead>
@@ -155,15 +211,29 @@
 <script>
     async function updateStatus() {
         try {
-            const res = await fetch('/api/fl/status');
+            const res = await fetch('/api/fl/status', { credentials: 'same-origin' });
             const data = await res.json();
             document.getElementById('round-num').innerText = data.round;
             document.getElementById('clients-updated').innerText = data.clients_updated;
 
             // Fetch history for charts
-            const histRes = await fetch('/api/fl/history');
+            const histRes = await fetch('/api/fl/history', { credentials: 'same-origin' });
             const history = await histRes.json();
             updateCharts(history);
+
+            // Update History Table
+            const tbody = document.querySelector('#history-table tbody');
+            tbody.innerHTML = '';
+            for (let i = 0; i < history.rounds.length; i++) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>Round ${history.rounds[i]}</td>
+                    <td>${(history.accuracy[i] * 100).toFixed(2)}%</td>
+                    <td>${(history.loss[i]).toFixed(4)}</td>
+                    <td><button class="btn btn-sm btn-outline-danger" onclick="rollbackModel(${history.rounds[i]})">Rollback to Round ${history.rounds[i]}</button></td>
+                `;
+                tbody.appendChild(tr);
+            }
 
         } catch (e) {
             console.error(e);
@@ -173,7 +243,7 @@
     // User Management Functions
     async function loadUsers() {
         try {
-            const res = await fetch('/api/users');
+            const res = await fetch('/api/users', { credentials: 'same-origin' });
             if (!res.ok) return; // Maybe not admin or error
             const users = await res.json();
             const tbody = document.querySelector('#user-table tbody');
@@ -209,6 +279,7 @@
         try {
             const res = await fetch('/api/users', {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
             });
@@ -235,7 +306,7 @@
         if (!confirm('Are you sure you want to delete this user?')) return;
 
         try {
-            const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+            const res = await fetch(`/api/users/${id}`, { method: 'DELETE', credentials: 'same-origin' });
             const result = await res.json();
             if (res.ok) {
                 showToast(result.message, 'success');
@@ -294,7 +365,7 @@
     }
 
     document.getElementById('start-round-btn').onclick = async () => {
-        const res = await fetch('/api/fl/start_round', { method: 'POST' });
+        const res = await fetch('/api/fl/start_round', { method: 'POST', credentials: 'same-origin' });
         const data = await res.json();
         if (res.ok) {
             showToast(data.message, 'success');
@@ -304,8 +375,25 @@
         updateStatus();
     };
 
+    async function rollbackModel(round) {
+        if (!confirm(`Are you sure you want to rollback to Round ${round}? This will delete subsequent history and model weights.`)) return;
+        try {
+            const res = await fetch(`/api/fl/rollback/${round}`, { method: 'POST', credentials: 'same-origin' });
+            const data = await res.json();
+            if (res.ok) {
+                showToast(data.message, 'success');
+                updateStatus();
+            } else {
+                showToast(data.error || 'Error rolling back', 'error');
+            }
+        } catch (e) {
+            console.error(e);
+            showToast('Network error during rollback', 'error');
+        }
+    }
+
     document.getElementById('aggregate-btn').onclick = async () => {
-        const res = await fetch('/api/fl/aggregate', { method: 'POST' });
+        const res = await fetch('/api/fl/aggregate', { method: 'POST', credentials: 'same-origin' });
         const data = await res.json();
         if (res.ok) {
             showToast(data.message, 'success');
@@ -313,6 +401,72 @@
             showToast(data.error || 'Error aggregating', 'error');
         }
         updateStatus();
+    };
+
+    document.getElementById('reset-fl-btn').onclick = async () => {
+        if (!confirm('Are you sure you want to completely reset the Federated Learning state? All progress will be lost.')) return;
+        const res = await fetch('/api/fl/reset', { method: 'POST', credentials: 'same-origin' });
+        const data = await res.json();
+        if (res.ok) {
+            showToast(data.message, 'success');
+        } else {
+            showToast(data.error || 'Error resetting FL state', 'error');
+        }
+        updateStatus();
+    };
+
+    document.getElementById('clear-logs-btn').onclick = async () => {
+        if (!confirm('Are you sure you want to clear all audit logs?')) return;
+        const res = await fetch('/api/audit-logs', { method: 'DELETE', credentials: 'same-origin' });
+        const data = await res.json();
+        if (res.ok) {
+            showToast(data.message, 'success');
+            // Refresh page to clear the table since it's rendered via Jinja template currently
+            setTimeout(() => window.location.reload(), 1000);
+        } else {
+            showToast(data.error || 'Error clearing logs', 'error');
+        }
+    };
+
+    document.getElementById('evaluate-btn').onclick = async () => {
+        const fileInput = document.getElementById('validation-file');
+        if (fileInput.files.length === 0) {
+            showToast("Please select a CSV file.", "error");
+            return;
+        }
+
+        const btn = document.getElementById('evaluate-btn');
+        btn.disabled = true;
+        btn.innerText = "Evaluating...";
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
+        try {
+            const res = await fetch('/api/fl/evaluate', {
+                method: 'POST',
+                credentials: 'same-origin',
+                body: formData
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                document.getElementById('validation-results').classList.remove('d-none');
+                document.getElementById('val-acc').innerText = (data.accuracy * 100).toFixed(2) + '%';
+                document.getElementById('val-prec').innerText = (data.precision * 100).toFixed(2) + '%';
+                document.getElementById('val-rec').innerText = (data.recall * 100).toFixed(2) + '%';
+                document.getElementById('val-f1').innerText = (data.f1 * 100).toFixed(2) + '%';
+                showToast("Evaluation complete", "success");
+            } else {
+                showToast(data.error || "Evaluation failed", "error");
+            }
+        } catch (e) {
+            console.error(e);
+            showToast("Network error", "error");
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "Evaluate Global Model";
+        }
     };
 
     document.getElementById('refresh-status-btn').onclick = updateStatus;

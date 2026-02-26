@@ -1,50 +1,119 @@
-import numpy as np
-from sklearn.linear_model import SGDClassifier
-from sklearn.preprocessing import StandardScaler
-import pickle
+import torch
+import torch.nn as nn
 import os
 
-class FLModel:
-    def __init__(self):
-        # We use SGDClassifier with 'log' loss which is equivalent to Logistic Regression
-        # but supports partial_fit for incremental learning if needed,
-        # and exposes simplified coefficients for aggregation.
-        self.model = SGDClassifier(loss='log_loss', penalty='l2', max_iter=1000, tol=1e-3, random_state=42)
-        self.scaler = StandardScaler()
-        self.classes = np.array([0, 1]) # Binary classification: No Heart Disease, Heart Disease
+class FederatedDNN(nn.Module):
+    def __init__(self, input_size=23):
+        super(FederatedDNN, self).__init__()
+        # 3-layer Neural Network architecture
+        self.layer1 = nn.Linear(input_size, 64)
+        self.relu1 = nn.ReLU()
+        self.layer2 = nn.Linear(64, 32)
+        self.relu2 = nn.ReLU()
+        self.layer3 = nn.Linear(32, 1)
+        self.sigmoid = nn.Sigmoid()
 
-    def train(self, X, y):
-        # Using partial_fit to support online learning simulation or full fit
-        # We use fit for simplicity in each round if assuming full local data pass
-        self.model.fit(X, y)
-    
+    def forward(self, x):
+        x = self.relu1(self.layer1(x))
+        x = self.relu2(self.layer2(x))
+        x = self.sigmoid(self.layer3(x))
+        return x
+
+class FLModel:
+    def __init__(self, input_size=23):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = FederatedDNN(input_size=input_size).to(self.device)
+
+    def train(self, X, y, epochs=5, batch_size=32, lr=0.01):
+        """Train the model on local data using PyTorch standard loop."""
+        import torch.optim as optim
+        criterion = nn.BCELoss()
+        optimizer = optim.Adam(self.model.parameters(), lr=lr)
+
+        X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
+        y_tensor = torch.tensor(y, dtype=torch.float32).view(-1, 1).to(self.device)
+        
+        # Simple mini-batch training
+        dataset = torch.utils.data.TensorDataset(X_tensor, y_tensor)
+        loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        
+        self.model.train()
+        total_loss = 0
+        correct = 0
+        total = 0
+
+        for epoch in range(epochs):
+            epoch_loss = 0
+            for batch_X, batch_y in loader:
+                optimizer.zero_grad()
+                outputs = self.model(batch_X)
+                loss = criterion(outputs, batch_y)
+                loss.backward()
+                optimizer.step()
+                epoch_loss += loss.item() * batch_X.size(0)
+                
+                # Calculate accuracy
+                predictions = (outputs >= 0.5).float()
+                correct += (predictions == batch_y).sum().item()
+                total += batch_y.size(0)
+                
+            total_loss += epoch_loss
+            
+        avg_loss = total_loss / (epochs * total)
+        accuracy = correct / (epochs * total)
+        return {'loss': avg_loss, 'accuracy': accuracy}
+
     def get_weights(self):
-        if hasattr(self.model, 'coef_'):
-            return {
-                'coef': self.model.coef_,
-                'intercept': self.model.intercept_
-            }
-        return None
+        """Extract the model state dict (weights and biases)."""
+        # Convert tensors to CPU before sending/saving
+        state_dict = self.model.state_dict()
+        return {k: v.cpu() for k, v in state_dict.items()}
 
     def set_weights(self, weights):
-        self.model.coef_ = weights['coef']
-        self.model.intercept_ = weights['intercept']
+        """Update the model with an aggregated state dict."""
+        # Move tensors to the correct device
+        weights_device = {k: v.to(self.device) for k, v in weights.items()}
+        self.model.load_state_dict(weights_device)
 
     def predict(self, X):
-        return self.model.predict(X)
+        """Predict binary class (0 or 1)."""
+        # X is expected to be a numpy array from FLDataHandler
+        self.model.eval()
+        with torch.no_grad():
+            X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
+            outputs = self.model(X_tensor).squeeze()
+            predictions = (outputs >= 0.5).int()
+            # Handle single sample case
+            if predictions.dim() == 0:
+                return [predictions.item()]
+            return predictions.cpu().numpy()
 
     def predict_proba(self, X):
-        return self.model.predict_proba(X)
+        """Predict probabilities for [No Disease, Disease]."""
+        self.model.eval()
+        with torch.no_grad():
+            X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
+            outputs = self.model(X_tensor).squeeze()
+            if outputs.dim() == 0:
+                prob_1 = outputs.item()
+            else:
+                prob_1 = outputs.cpu().numpy()
+            
+            # Reconstruct scikit-learn style predict_proba: [prob_class_0, prob_class_1]
+            import numpy as np
+            prob_0 = 1.0 - prob_1
+            return np.vstack((prob_0, prob_1)).T
 
     def save(self, filepath):
-        with open(filepath, 'wb') as f:
-            pickle.dump({'model': self.model, 'scaler': self.scaler}, f)
+        """Save the PyTorch model state."""
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+        }, filepath)
 
     def load(self, filepath):
+        """Load the PyTorch model state."""
         if os.path.exists(filepath):
-            with open(filepath, 'rb') as f:
-                data = pickle.load(f)
-                self.model = data['model']
-                self.scaler = data['scaler']
+            checkpoint = torch.load(filepath, map_location=self.device)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
             return True
         return False

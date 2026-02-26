@@ -7,3 +7,4 @@ email-validator
 pandas
 numpy
 scikit-learn
+torch

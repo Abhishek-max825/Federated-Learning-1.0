@@ -20,6 +20,14 @@
 
             <button id="train-btn" class="btn btn-primary">Train Local Model</button>
             <div id="train-status" class="mt-3"></div>
+
+            <div id="analytics-panel" class="alert alert-info mt-3 d-none">
+                <h6 class="alert-heading">Local Training Analytics</h6>
+                <hr>
+                <p class="mb-1"><strong>Samples Contributed:</strong> <span id="stat-samples">-</span></p>
+                <p class="mb-1"><strong>Local Accuracy:</strong> <span id="stat-acc">-</span></p>
+                <p class="mb-0"><strong>Local Loss:</strong> <span id="stat-loss">-</span></p>
+            </div>
         </div>
     </div>
 </div>
@@ -42,6 +50,7 @@
 
             const res = await fetch('/api/fl/train', {
                 method: 'POST',
+                credentials: 'same-origin',
                 body: formData
             });
             const data = await res.json();
@@ -49,6 +58,14 @@
             if (res.ok) {
                 showToast(data.message, 'success');
                 statusDiv.innerText = data.message;
+
+                // Display analytics
+                document.getElementById('analytics-panel').classList.remove('d-none');
+                document.getElementById('stat-samples').innerText = data.samples;
+                if (data.metrics) {
+                    document.getElementById('stat-acc').innerText = (data.metrics.accuracy * 100).toFixed(2) + '%';
+                    document.getElementById('stat-loss').innerText = data.metrics.loss.toFixed(4);
+                }
             } else {
                 showToast(data.error || "Training failed", 'error');
                 statusDiv.innerText = "Error: " + (data.error || "Unknown error");

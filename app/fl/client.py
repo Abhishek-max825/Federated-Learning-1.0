@@ -43,12 +43,19 @@ class FLClient:
             print(f"Client {self.client_id}: Using pre-loaded {len(X_train_round)} samples for this training round.")
 
         # Local training
-        # For simulation, we fit on the full local dataset
-        # In real FL, we might do partial_fit over batches
-        self.model.train(X_train_round, y_train_round)
+        metrics = self.model.train(X_train_round, y_train_round, epochs=5)
         
-        # Return updated weights and sample size
+        # Extract weights
         n_samples = len(self.X_train)
         weights = self.model.get_weights()
         
-        return weights, n_samples
+        # Differential Privacy (Option 2)
+        # Inject Laplacian/Gaussian noise to the weights before sending to server
+        import torch
+        noise_multiplier = 0.01  # Small noise for demonstration
+        for k in weights.keys():
+            # torch.randn_like creates a tensor of random numbers with the same size
+            noise = torch.randn_like(weights[k]) * noise_multiplier
+            weights[k] += noise
+        
+        return weights, n_samples, metrics

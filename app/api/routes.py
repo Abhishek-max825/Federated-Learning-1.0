@@ -60,12 +60,16 @@ def train_local():
         # Default to hospital 1 data if no file uploaded
         default_data_path = HOSPITAL_DATA_MAP.get(1)
         client = FLClient(client_id=1, data_path=default_data_path) 
-        weights, n_samples = client.train(global_model.get_weights(), data_path=data_path)
+        weights, n_samples, metrics = client.train(global_model.get_weights(), data_path=data_path)
         
         # Send update to aggregator
         aggregator.add_client_update(weights, n_samples)
         
-        return jsonify({'message': 'Local training complete. Update sent to server.', 'samples': n_samples})
+        return jsonify({
+            'message': 'Local training complete. Update sent to server.', 
+            'samples': n_samples,
+            'metrics': metrics
+        })
     except Exception as e:
         import traceback
         return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
@@ -83,6 +87,97 @@ def aggregate():
 @login_required
 def fl_history():
     return jsonify(aggregator.history)
+
+@bp.route('/fl/evaluate', methods=['POST'])
+@login_required
+@admin_required
+def evaluate_global_model():
+    if 'file' not in request.files or request.files['file'].filename == '':
+        return jsonify({'error': 'No validation file provided'}), 400
+        
+    file = request.files['file']
+    filename = secure_filename(file.filename)
+    upload_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+    file.save(upload_path)
+    
+    try:
+        from app.fl.data import FLDataHandler
+        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+        
+        handler = FLDataHandler()
+        X_test, y_test = handler.load_data(upload_path)
+        
+        global_model = aggregator.get_global_model()
+        y_pred = global_model.predict(X_test)
+        
+        metrics = {
+            'accuracy': float(accuracy_score(y_test, y_pred)),
+            'precision': float(precision_score(y_test, y_pred, zero_division=0)),
+            'recall': float(recall_score(y_test, y_pred, zero_division=0)),
+            'f1': float(f1_score(y_test, y_pred, zero_division=0))
+        }
+        
+        return jsonify(metrics)
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+@bp.route('/fl/rollback/<int:round_num>', methods=['POST'])
+@login_required
+@admin_required
+def rollback_model(round_num):
+    """Rolls back the global model to a specific past round."""
+    import os
+    save_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'fl', 'saved_models')
+    filepath = os.path.join(save_dir, f'global_model_round_{round_num}.pkl')
+    
+    if not os.path.exists(filepath):
+        return jsonify({'error': f'Model weights for round {round_num} not found.'}), 404
+        
+    try:
+        # Load the PyTorch model
+        success = aggregator.global_model.load(filepath)
+        if not success:
+            return jsonify({'error': 'Failed to load model weights.'}), 500
+            
+        # Update round counter to the rolled-back round
+        # For instance, if we rollback from round 5 to round 2, the current round becomes 2.
+        # So the next training round will be Round 3.
+        aggregator.round = round_num
+        
+        # Truncate history arrays to match the new round
+        if len(aggregator.history['rounds']) >= round_num:
+            aggregator.history['rounds'] = aggregator.history['rounds'][:round_num]
+            aggregator.history['accuracy'] = aggregator.history['accuracy'][:round_num]
+            aggregator.history['loss'] = aggregator.history['loss'][:round_num]
+            
+        # Log it
+        from app import db
+        from app.models import AuditLog
+        log = AuditLog(action='FL Rollback', details=f'Admin rolled back model to Round {round_num}.')
+        db.session.add(log)
+        db.session.commit()
+        
+        return jsonify({'message': f'Successfully rolled back to Round {round_num}.'})
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+@bp.route('/fl/reset', methods=['POST'])
+@login_required
+@admin_required
+def reset_fl_state():
+    """Reset the federated learning global state completely."""
+    aggregator.reset()
+    try:
+        from app import db
+        from app.models import AuditLog
+        log = AuditLog(action='FL State Reset', details='Admin reset the global FL state.')
+        db.session.add(log)
+        db.session.commit()
+    except Exception as e:
+        current_app.logger.error(f"Error logging FL reset: {e}")
+    return jsonify({'message': 'Federated Learning state reset successfully.'})
 
 # --- User Management APIs ---
 
@@ -149,3 +244,22 @@ def delete_user(user_id):
     db.session.delete(user)
     db.session.commit()
     return jsonify({'message': 'User deleted successfully'})
+
+@bp.route('/audit-logs', methods=['DELETE'])
+@login_required
+@admin_required
+def clear_audit_logs():
+    """Clear all recent audit logs."""
+    from app.models import AuditLog
+    try:
+        AuditLog.query.delete()
+        
+        # Optionally, log the clearing action itself so it isn't completely empty
+        log = AuditLog(action='Audit Logs Cleared', details='Admin cleared all previous audit logs.')
+        db.session.add(log)
+        db.session.commit()
+        
+        return jsonify({'message': 'Audit logs cleared successfully.'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
