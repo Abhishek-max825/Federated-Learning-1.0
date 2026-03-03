@@ -8,15 +8,17 @@ class FederatedDNN(nn.Module):
         # 3-layer Neural Network architecture
         self.layer1 = nn.Linear(input_size, 64)
         self.relu1 = nn.ReLU()
+        self.dropout1 = nn.Dropout(0.3)
         self.layer2 = nn.Linear(64, 32)
         self.relu2 = nn.ReLU()
+        self.dropout2 = nn.Dropout(0.2)
         self.layer3 = nn.Linear(32, 1)
-        self.sigmoid = nn.Sigmoid()
+        # No sigmoid here — use BCEWithLogitsLoss for numerical stability
 
     def forward(self, x):
-        x = self.relu1(self.layer1(x))
-        x = self.relu2(self.layer2(x))
-        x = self.sigmoid(self.layer3(x))
+        x = self.dropout1(self.relu1(self.layer1(x)))
+        x = self.dropout2(self.relu2(self.layer2(x)))
+        x = self.layer3(x)  # Raw logits
         return x
 
 class FLModel:
@@ -24,16 +26,24 @@ class FLModel:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = FederatedDNN(input_size=input_size).to(self.device)
 
-    def train(self, X, y, epochs=5, batch_size=32, lr=0.01):
+    def train(self, X, y, epochs=5, batch_size=256, lr=0.001):
         """Train the model on local data using PyTorch standard loop."""
         import torch.optim as optim
-        criterion = nn.BCELoss()
+
+        # Compute class weight to handle imbalance
+        # pos_weight = num_negatives / num_positives
+        n_pos = max((y == 1).sum(), 1)
+        n_neg = max((y == 0).sum(), 1)
+        pos_weight = torch.tensor([n_neg / n_pos], dtype=torch.float32).to(self.device)
+        print(f"  Class distribution: {n_neg} negative, {n_pos} positive, pos_weight={pos_weight.item():.2f}")
+
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         optimizer = optim.Adam(self.model.parameters(), lr=lr)
 
         X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
         y_tensor = torch.tensor(y, dtype=torch.float32).view(-1, 1).to(self.device)
         
-        # Simple mini-batch training
+        # Mini-batch training
         dataset = torch.utils.data.TensorDataset(X_tensor, y_tensor)
         loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
         
@@ -46,14 +56,14 @@ class FLModel:
 
             for batch_X, batch_y in loader:
                 optimizer.zero_grad()
-                outputs = self.model(batch_X)
-                loss = criterion(outputs, batch_y)
+                logits = self.model(batch_X)
+                loss = criterion(logits, batch_y)
                 loss.backward()
                 optimizer.step()
                 epoch_loss += loss.item() * batch_X.size(0)
                 
-                # Calculate accuracy
-                predictions = (outputs >= 0.5).float()
+                # Calculate accuracy using sigmoid on logits
+                predictions = (torch.sigmoid(logits) >= 0.5).float()
                 epoch_correct += (predictions == batch_y).sum().item()
                 epoch_total += batch_y.size(0)
             
@@ -78,12 +88,12 @@ class FLModel:
 
     def predict(self, X):
         """Predict binary class (0 or 1)."""
-        # X is expected to be a numpy array from FLDataHandler
         self.model.eval()
         with torch.no_grad():
             X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
-            outputs = self.model(X_tensor).squeeze()
-            predictions = (outputs >= 0.5).int()
+            logits = self.model(X_tensor).squeeze()
+            probs = torch.sigmoid(logits)
+            predictions = (probs >= 0.5).int()
             # Handle single sample case
             if predictions.dim() == 0:
                 return [predictions.item()]
@@ -94,11 +104,12 @@ class FLModel:
         self.model.eval()
         with torch.no_grad():
             X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
-            outputs = self.model(X_tensor).squeeze()
-            if outputs.dim() == 0:
-                prob_1 = outputs.item()
+            logits = self.model(X_tensor).squeeze()
+            prob_1 = torch.sigmoid(logits)
+            if prob_1.dim() == 0:
+                prob_1 = prob_1.item()
             else:
-                prob_1 = outputs.cpu().numpy()
+                prob_1 = prob_1.cpu().numpy()
             
             # Reconstruct scikit-learn style predict_proba: [prob_class_0, prob_class_1]
             import numpy as np

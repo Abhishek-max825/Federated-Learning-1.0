@@ -61,8 +61,8 @@ def train_local():
         client = FLClient(client_id=hospital_id, data_path=upload_path)
         weights, n_samples, metrics = client.train(global_model.get_weights())
         
-        # Send update to aggregator
-        aggregator.add_client_update(weights, n_samples)
+        # Send update to aggregator (include real metrics)
+        aggregator.add_client_update(weights, n_samples, metrics)
 
         # Persist training event to DB so admin dashboard can see it
         try:

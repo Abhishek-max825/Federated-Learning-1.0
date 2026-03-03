@@ -45,10 +45,9 @@ def doctor_dashboard():
         }
         df = pd.DataFrame(data)
         
-        # Preprocess
+        # Preprocess using the fitted scaler (not fit_transform on single sample)
         handler = FLDataHandler()
-        # Ensure categories match string format expected
-        X = handler.preprocess_features(df)
+        X = handler.preprocess_for_prediction(df)
         
         # Predict
         try:

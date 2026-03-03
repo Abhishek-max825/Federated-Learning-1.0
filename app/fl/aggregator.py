@@ -7,7 +7,8 @@ class FLAggregator:
         self.round = 0
         self.client_weights = []
         self.client_sizes = []
-        self.history = {'rounds': [], 'accuracy': [], 'loss': []} # Added for analytics
+        self.client_metrics = []  # Store real metrics from each client
+        self.history = {'rounds': [], 'accuracy': [], 'loss': []}
 
     def reset(self):
         """Reset the federated learning state completely."""
@@ -15,21 +16,11 @@ class FLAggregator:
         self.round = 0
         self.client_weights = []
         self.client_sizes = []
+        self.client_metrics = []
         self.history = {'rounds': [], 'accuracy': [], 'loss': []}
 
     def initialize_global_model(self):
-        # Initialize with random weights or load previous
-        # For SGDClassifier, we need to fit it once to initialize coef_ and intercept_ dimensions
-        # We can use dummy data or just rely on the first round to set shape if we handle it carefully.
-        # But sklearn SGD needs 'classes' and valid input to init.
-        # Strategy: The global model object is a wrapper. We can just wait for first round updates?
-        # No, clients need initial model.
-        # Let's initialize with zeros or random small values.
-        # SGDClassifier properties: coef_ is (1, n_features) for binary. intercept_ is (1,).
-        # We don't know n_features until data is loaded.
-        # We should assume n_features based on OneHotEncoder output size.
-        pass
-
+        # PyTorch model is already initialized with random weights in FLModel.__init__
         return True
 
     def aggregate(self):
@@ -59,25 +50,37 @@ class FLAggregator:
         # Update global model
         self.global_model.set_weights(agg_weights)
         
-        # Record history (Simulated accuracy improvement for demo)
-        # In real FL, we would evaluate on a held-out confirmation set here.
-        simulated_acc = 0.65 + (0.05 * self.round) if self.round < 6 else 0.92
-        simulated_loss = 1.0 - (0.1 * self.round) if self.round < 8 else 0.2
+        # Compute weighted average of real client metrics
+        if self.client_metrics:
+            weighted_acc = sum(
+                m.get('accuracy', 0) * n for m, n in zip(self.client_metrics, self.client_sizes)
+            ) / total_samples
+            weighted_loss = sum(
+                m.get('loss', 0) * n for m, n in zip(self.client_metrics, self.client_sizes)
+            ) / total_samples
+        else:
+            weighted_acc = 0.0
+            weighted_loss = 0.0
+
         self.history['rounds'].append(self.round + 1)
-        self.history['accuracy'].append(min(simulated_acc, 0.95))
-        self.history['loss'].append(max(simulated_loss, 0.1))
+        self.history['accuracy'].append(round(weighted_acc, 4))
+        self.history['loss'].append(round(weighted_loss, 4))
 
         # Audit Log
         try:
             from app import db
-            from app.models import AuditLog, User
-            # We don't have a specific user for the system, maybe use Admin (id=1) or None
-            # For now, let's just log it.
-            log = AuditLog(action='FL Round Aggregation', details=f'Round {self.round+1} completed. Accuracy: {self.history["accuracy"][-1]:.2f}')
+            from app.models import AuditLog
+            n_clients = len(self.client_weights)
+            log = AuditLog(
+                action='FL Round Aggregation',
+                details=f'Round {self.round+1} completed. '
+                        f'{n_clients} client(s), {total_samples} total samples. '
+                        f'Avg Accuracy: {weighted_acc:.4f}, Avg Loss: {weighted_loss:.4f}'
+            )
             db.session.add(log)
             db.session.commit()
         except:
-            pass # Avoid breaking FL if DB fails
+            pass  # Avoid breaking FL if DB fails
 
         # Save Global Model
         try:
@@ -100,13 +103,17 @@ class FLAggregator:
         # Clear for next round
         self.client_weights = []
         self.client_sizes = []
+        self.client_metrics = []
         self.round += 1
         
         return True
 
-    def add_client_update(self, weights, n_samples):
+    def add_client_update(self, weights, n_samples, metrics=None):
+        """Store a client's trained weights, sample count, and training metrics."""
         self.client_weights.append(weights)
         self.client_sizes.append(n_samples)
+        self.client_metrics.append(metrics or {})
 
     def get_global_model(self):
         return self.global_model
+

@@ -10,7 +10,7 @@
             <h4>Prediction Result: {{ prediction }}</h4>
             <p>The model predicts a <strong>{{ 'High' if prediction == 'Yes' else 'Low' }}</strong> risk of heart
                 disease.</p>
-            <a href="{{ url_for('main.download_report') }}" class="btn btn-secondary mt-2">Download PDF Report</a>
+            <p class="text-muted mb-0"><small>Based on the current global FL model.</small></p>
         </div>
         {% endif %}
 
@@ -27,6 +27,9 @@
             <div class="mb-3">
                 {{ form.bmi.label(class="form-label") }}
                 {{ form.bmi(class="form-control") }}
+                {% for error in form.bmi.errors %}
+                <div class="text-danger"><small>{{ error }}</small></div>
+                {% endfor %}
             </div>
             <div class="mb-3">
                 {{ form.smoked_100_cigarettes.label(class="form-label") }}

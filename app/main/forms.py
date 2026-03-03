@@ -1,6 +1,6 @@
 from flask_wtf import FlaskForm
 from wtforms import SelectField, FloatField, SubmitField
-from wtforms.validators import DataRequired
+from wtforms.validators import DataRequired, NumberRange
 
 class PredictionForm(FlaskForm):
     age_group = SelectField('Age Group', choices=[
@@ -12,7 +12,10 @@ class PredictionForm(FlaskForm):
         ('1.0', 'Male'), ('2.0', 'Female')
     ], validators=[DataRequired()])
     
-    bmi = FloatField('BMI (e.g. 25.5)', validators=[DataRequired()])
+    bmi = FloatField('BMI (e.g. 25.5)', validators=[
+        DataRequired(),
+        NumberRange(min=10, max=100, message='BMI must be between 10 and 100')
+    ])
     
     smoked_100_cigarettes = SelectField('Smoked at least 100 cigarettes?', choices=[
         ('1.0', 'Yes'), ('2.0', 'No'), ('Unknown', 'Unknown')

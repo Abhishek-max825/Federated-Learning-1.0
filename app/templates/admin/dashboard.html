@@ -393,26 +393,44 @@
     }
 
     document.getElementById('aggregate-btn').onclick = async () => {
-        const res = await fetch('/api/fl/aggregate', { method: 'POST', credentials: 'same-origin' });
-        const data = await res.json();
-        if (res.ok) {
-            showToast(data.message, 'success');
-        } else {
-            showToast(data.error || 'Error aggregating', 'error');
+        try {
+            const res = await fetch('/api/fl/aggregate', { method: 'POST', credentials: 'same-origin' });
+            if (res.status === 403 || res.status === 401) {
+                showToast('Session expired or not authorized. Please log in as Admin again.', 'error');
+                return;
+            }
+            const data = await res.json();
+            if (res.ok) {
+                showToast(data.message, 'success');
+            } else {
+                showToast(data.error || 'Error aggregating', 'error');
+            }
+            updateStatus();
+        } catch (e) {
+            console.error(e);
+            showToast('Network error. Please refresh and try again.', 'error');
         }
-        updateStatus();
     };
 
     document.getElementById('reset-fl-btn').onclick = async () => {
         if (!confirm('Are you sure you want to completely reset the Federated Learning state? All progress will be lost.')) return;
-        const res = await fetch('/api/fl/reset', { method: 'POST', credentials: 'same-origin' });
-        const data = await res.json();
-        if (res.ok) {
-            showToast(data.message, 'success');
-        } else {
-            showToast(data.error || 'Error resetting FL state', 'error');
+        try {
+            const res = await fetch('/api/fl/reset', { method: 'POST', credentials: 'same-origin' });
+            if (res.status === 403 || res.status === 401) {
+                showToast('Session expired or not authorized. Please log in as Admin again.', 'error');
+                return;
+            }
+            const data = await res.json();
+            if (res.ok) {
+                showToast(data.message, 'success');
+            } else {
+                showToast(data.error || 'Error resetting FL state', 'error');
+            }
+            updateStatus();
+        } catch (e) {
+            console.error(e);
+            showToast('Network error. Please refresh and try again.', 'error');
         }
-        updateStatus();
     };
 
     document.getElementById('clear-logs-btn').onclick = async () => {
