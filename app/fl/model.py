@@ -38,12 +38,12 @@ class FLModel:
         loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
         
         self.model.train()
-        total_loss = 0
-        correct = 0
-        total = 0
 
         for epoch in range(epochs):
             epoch_loss = 0
+            epoch_correct = 0
+            epoch_total = 0
+
             for batch_X, batch_y in loader:
                 optimizer.zero_grad()
                 outputs = self.model(batch_X)
@@ -54,14 +54,15 @@ class FLModel:
                 
                 # Calculate accuracy
                 predictions = (outputs >= 0.5).float()
-                correct += (predictions == batch_y).sum().item()
-                total += batch_y.size(0)
-                
-            total_loss += epoch_loss
+                epoch_correct += (predictions == batch_y).sum().item()
+                epoch_total += batch_y.size(0)
             
-        avg_loss = total_loss / (epochs * total)
-        accuracy = correct / (epochs * total)
-        return {'loss': avg_loss, 'accuracy': accuracy}
+            epoch_avg_loss = epoch_loss / epoch_total
+            epoch_accuracy = epoch_correct / epoch_total
+            print(f"  Epoch {epoch+1}/{epochs} - Loss: {epoch_avg_loss:.4f}, Accuracy: {epoch_accuracy:.4f}")
+
+        # Return final epoch metrics (post-training performance)
+        return {'loss': epoch_avg_loss, 'accuracy': epoch_accuracy}
 
     def get_weights(self):
         """Extract the model state dict (weights and biases)."""

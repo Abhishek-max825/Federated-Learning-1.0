@@ -38,32 +38,47 @@ def start_round():
 @login_required
 @hospital_required
 def train_local():
-    # Simulate client training
-    # For this demo, the server acts as the client too.
+    # Train on the dataset uploaded by the hospital client.
     
-    data_path = None
-    if 'file' in request.files:
-        file = request.files['file']
-        if file.filename != '':
-            filename = secure_filename(file.filename)
-            upload_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
-            file.save(upload_path)
-            data_path = upload_path
+    # --- 1. Validate & save the uploaded file ---
+    if 'file' not in request.files or request.files['file'].filename == '':
+        return jsonify({'error': 'A dataset file is required for training.'}), 400
 
-    # Get latest global model
+    file = request.files['file']
+    filename = secure_filename(file.filename)
+    upload_dir = current_app.config['UPLOAD_FOLDER']
+    os.makedirs(upload_dir, exist_ok=True)
+    upload_path = os.path.join(upload_dir, filename)
+    file.save(upload_path)
+
+    # --- 2. Identify the hospital client ---
+    hospital_id = getattr(current_user, 'hospital_id', None) or 1
+
+    # --- 3. Get latest global model & train ---
     global_model = aggregator.get_global_model()
-    
-    # Train
-    # We use a simulated client for now (e.g., Client 1)
-    # In real app, we would identify client by current_user.hospital_id
+
     try:
-        # Default to hospital 1 data if no file uploaded
-        default_data_path = HOSPITAL_DATA_MAP.get(1)
-        client = FLClient(client_id=1, data_path=default_data_path) 
-        weights, n_samples, metrics = client.train(global_model.get_weights(), data_path=data_path)
+        client = FLClient(client_id=hospital_id, data_path=upload_path)
+        weights, n_samples, metrics = client.train(global_model.get_weights())
         
         # Send update to aggregator
         aggregator.add_client_update(weights, n_samples)
+
+        # Persist training event to DB so admin dashboard can see it
+        try:
+            from app import db
+            from app.models import AuditLog
+            log = AuditLog(
+                action='Client Training',
+                details=f'Hospital {hospital_id} trained on {n_samples} samples '
+                        f'(file: {filename}). '
+                        f'Accuracy: {metrics.get("accuracy", 0):.4f}, '
+                        f'Loss: {metrics.get("loss", 0):.4f}'
+            )
+            db.session.add(log)
+            db.session.commit()
+        except Exception as log_err:
+            current_app.logger.error(f"Error logging training audit: {log_err}")
         
         return jsonify({
             'message': 'Local training complete. Update sent to server.', 
@@ -97,7 +112,9 @@ def evaluate_global_model():
         
     file = request.files['file']
     filename = secure_filename(file.filename)
-    upload_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+    upload_dir = current_app.config['UPLOAD_FOLDER']
+    os.makedirs(upload_dir, exist_ok=True)
+    upload_path = os.path.join(upload_dir, filename)
     file.save(upload_path)
     
     try:

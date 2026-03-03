@@ -38,9 +38,9 @@ class FLClient:
             X_train_round, y_train_round = data_loader.load_data(file_path)
             print(f"Client {self.client_id}: Loaded {len(X_train_round)} samples for this training round from {file_path}.")
         else:
-            # Use pre-loaded data if no specific path is provided
+            # Use data loaded during initialization (from uploaded file or default path)
             X_train_round, y_train_round = self.X_train, self.y_train
-            print(f"Client {self.client_id}: Using pre-loaded {len(X_train_round)} samples for this training round.")
+            print(f"Client {self.client_id}: Training on {len(X_train_round)} samples from {self.data_path}.")
 
         # Local training
         metrics = self.model.train(X_train_round, y_train_round, epochs=5)
