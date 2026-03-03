@@ -3,7 +3,7 @@
 {% block content %}
 <div class="container">
     <h2>Hospital Dashboard</h2>
-    <p>Node: {{ current_user.hospital.name if current_user.hospital else 'Hospital Node 1 (Simulated)' }}</p>
+    <p>Node: {{ current_user.hospital.name if current_user.hospital else current_user.username }}</p>
 
     <div class="card mt-4">
         <div class="card-header">Local Training</div>
