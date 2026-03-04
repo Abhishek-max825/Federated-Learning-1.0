@@ -8,10 +8,10 @@ class FederatedDNN(nn.Module):
         # 3-layer Neural Network architecture
         self.layer1 = nn.Linear(input_size, 64)
         self.relu1 = nn.ReLU()
-        self.dropout1 = nn.Dropout(0.3)
+        self.dropout1 = nn.Dropout(0.1)
         self.layer2 = nn.Linear(64, 32)
         self.relu2 = nn.ReLU()
-        self.dropout2 = nn.Dropout(0.2)
+        self.dropout2 = nn.Dropout(0.1)
         self.layer3 = nn.Linear(32, 1)
         # No sigmoid here — use BCEWithLogitsLoss for numerical stability
 
@@ -26,7 +26,7 @@ class FLModel:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = FederatedDNN(input_size=input_size).to(self.device)
 
-    def train(self, X, y, epochs=5, batch_size=256, lr=0.001):
+    def train(self, X, y, epochs=5, batch_size=256, lr=0.003):
         """Train the model on local data using PyTorch standard loop."""
         import torch.optim as optim
 
@@ -39,6 +39,7 @@ class FLModel:
 
         criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
 
         X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
         y_tensor = torch.tensor(y, dtype=torch.float32).view(-1, 1).to(self.device)
@@ -69,7 +70,8 @@ class FLModel:
             
             epoch_avg_loss = epoch_loss / epoch_total
             epoch_accuracy = epoch_correct / epoch_total
-            print(f"  Epoch {epoch+1}/{epochs} - Loss: {epoch_avg_loss:.4f}, Accuracy: {epoch_accuracy:.4f}")
+            scheduler.step(epoch_avg_loss)
+            print(f"  Epoch {epoch+1}/{epochs} - Loss: {epoch_avg_loss:.4f}, Accuracy: {epoch_accuracy:.4f}, LR: {optimizer.param_groups[0]['lr']:.6f}")
 
         # Return final epoch metrics (post-training performance)
         return {'loss': epoch_avg_loss, 'accuracy': epoch_accuracy}

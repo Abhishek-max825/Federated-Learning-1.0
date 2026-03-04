@@ -35,6 +35,14 @@ def create_app(config_class=Config):
     from app.api import bp as api_bp
     app.register_blueprint(api_bp, url_prefix='/api')
 
+    @app.before_request
+    def update_last_seen():
+        from flask_login import current_user
+        if current_user.is_authenticated:
+            from datetime import datetime
+            current_user.last_seen = datetime.utcnow()
+            db.session.commit()
+
     return app
 
 from app import models

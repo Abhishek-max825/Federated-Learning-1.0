@@ -28,6 +28,13 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(128))
     role_id = db.Column(db.Integer, db.ForeignKey('role.id'))
     hospital_id = db.Column(db.Integer, db.ForeignKey('hospital.id'))
+    last_seen = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def is_online(self):
+        if self.last_seen is None:
+            return False
+        return (datetime.utcnow() - self.last_seen).total_seconds() < 120
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)

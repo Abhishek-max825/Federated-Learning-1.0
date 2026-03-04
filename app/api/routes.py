@@ -103,41 +103,37 @@ def aggregate():
 def fl_history():
     return jsonify(aggregator.history)
 
-@bp.route('/fl/evaluate', methods=['POST'])
+@bp.route('/audit-logs', methods=['GET'])
 @login_required
 @admin_required
-def evaluate_global_model():
-    if 'file' not in request.files or request.files['file'].filename == '':
-        return jsonify({'error': 'No validation file provided'}), 400
-        
-    file = request.files['file']
-    filename = secure_filename(file.filename)
-    upload_dir = current_app.config['UPLOAD_FOLDER']
-    os.makedirs(upload_dir, exist_ok=True)
-    upload_path = os.path.join(upload_dir, filename)
-    file.save(upload_path)
-    
-    try:
-        from app.fl.data import FLDataHandler
-        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-        
-        handler = FLDataHandler()
-        X_test, y_test = handler.load_data(upload_path)
-        
-        global_model = aggregator.get_global_model()
-        y_pred = global_model.predict(X_test)
-        
-        metrics = {
-            'accuracy': float(accuracy_score(y_test, y_pred)),
-            'precision': float(precision_score(y_test, y_pred, zero_division=0)),
-            'recall': float(recall_score(y_test, y_pred, zero_division=0)),
-            'f1': float(f1_score(y_test, y_pred, zero_division=0))
-        }
-        
-        return jsonify(metrics)
-    except Exception as e:
-        import traceback
-        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+def get_audit_logs():
+    """Return latest 20 audit logs as JSON for auto-refresh."""
+    from app.models import AuditLog
+    logs = AuditLog.query.order_by(AuditLog.timestamp.desc()).limit(20).all()
+    return jsonify([{
+        'id': log.id,
+        'action': log.action,
+        'details': log.details or '',
+        'timestamp': log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else ''
+    } for log in logs])
+
+@bp.route('/clients/status', methods=['GET'])
+@login_required
+@admin_required
+def get_clients_status():
+    """Return online/offline status for all Hospital Node users."""
+    from app.models import User, Role
+    hospital_role = Role.query.filter_by(name='Hospital Node').first()
+    if not hospital_role:
+        return jsonify([])
+    clients = User.query.filter_by(role_id=hospital_role.id).all()
+    return jsonify([{
+        'id': u.id,
+        'username': u.username,
+        'hospital': u.hospital.name if u.hospital else 'Unassigned',
+        'is_online': u.is_online,
+        'last_seen': u.last_seen.strftime('%Y-%m-%d %H:%M:%S') if u.last_seen else 'Never'
+    } for u in clients])
 
 @bp.route('/fl/rollback/<int:round_num>', methods=['POST'])
 @login_required

@@ -20,12 +20,26 @@
             <div class="card">
                 <div class="card-header">System Status</div>
                 <div class="card-body">
-                    <button id="refresh-status-btn" class="btn btn-sm btn-outline-secondary float-end">Refresh</button>
-                    <h5 class="card-title">FL Status</h5>
+                    <h5 class="card-title">FL Status <span class="badge bg-info text-dark ms-2"
+                            style="font-size:0.65em;">Auto-Refresh</span></h5>
                     <ul class="list-group list-group-flush" id="status-list">
                         <li class="list-group-item">Round: <span id="round-num">-</span></li>
                         <li class="list-group-item">Clients Updated: <span id="clients-updated">-</span></li>
                     </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Client Online/Offline Status -->
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">Client Status</div>
+                <div class="card-body">
+                    <div id="client-status-container">
+                        <p class="text-muted">Loading client status...</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -45,35 +59,6 @@
                 <div class="card-header">Training Loss</div>
                 <div class="card-body">
                     <canvas id="lossChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row mt-4">
-        <div class="col-md-12">
-            <div class="card">
-                <div class="card-header">Model Validation Hub</div>
-                <div class="card-body">
-                    <p>Upload a held-out test dataset to calculate the Global Model's real-world metrics (Precision,
-                        Recall, F1-Score).</p>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <input class="form-control mb-2" type="file" id="validation-file" accept=".csv">
-                            <button id="evaluate-btn" class="btn btn-warning">Evaluate Global Model</button>
-                        </div>
-                        <div class="col-md-6">
-                            <div id="validation-results" class="alert alert-info d-none">
-                                <strong>Validation Results:</strong>
-                                <ul class="mb-0">
-                                    <li>Accuracy: <span id="val-acc">-</span></li>
-                                    <li>Precision: <span id="val-prec">-</span></li>
-                                    <li>Recall: <span id="val-rec">-</span></li>
-                                    <li>F1-Score: <span id="val-f1">-</span></li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -180,6 +165,7 @@
             <div class="card">
                 <div class="card-header">
                     Recent Audit Logs
+                    <span class="badge bg-info text-dark ms-2" style="font-size:0.65em;">Auto-Refresh</span>
                     <button id="clear-logs-btn" class="btn btn-sm btn-danger float-end">Clear Logs</button>
                 </div>
                 <div class="card-body">
@@ -191,14 +177,8 @@
                                 <th>Details</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            {% for log in logs %}
-                            <tr>
-                                <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                                <td>{{ log.action }}</td>
-                                <td>{{ log.details }}</td>
-                            </tr>
-                            {% endfor %}
+                        <tbody id="audit-log-body">
+                            <!-- Loaded dynamically via JS -->
                         </tbody>
                     </table>
                 </div>
@@ -209,6 +189,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+    // ===== FL Status + Charts (auto-refresh) =====
     async function updateStatus() {
         try {
             const res = await fetch('/api/fl/status', { credentials: 'same-origin' });
@@ -240,11 +221,77 @@
         }
     }
 
-    // User Management Functions
+    // ===== Audit Logs (auto-refresh) =====
+    async function updateAuditLogs() {
+        try {
+            const res = await fetch('/api/audit-logs', { credentials: 'same-origin' });
+            if (!res.ok) return;
+            const logs = await res.json();
+            const tbody = document.getElementById('audit-log-body');
+            tbody.innerHTML = '';
+            logs.forEach(log => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${log.timestamp}</td>
+                    <td>${log.action}</td>
+                    <td>${log.details}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        } catch (e) {
+            console.error("Error loading audit logs:", e);
+        }
+    }
+
+    // ===== Client Status (auto-refresh) =====
+    async function updateClientStatus() {
+        try {
+            const res = await fetch('/api/clients/status', { credentials: 'same-origin' });
+            if (!res.ok) return;
+            const clients = await res.json();
+            const container = document.getElementById('client-status-container');
+
+            if (clients.length === 0) {
+                container.innerHTML = '<p class="text-muted">No Hospital Node clients registered.</p>';
+                return;
+            }
+
+            let html = '<div class="row">';
+            clients.forEach(c => {
+                const statusDot = c.is_online
+                    ? '<span style="color:#00ff88;font-size:1.3em;">&#9679;</span> <span class="badge bg-success">Online</span>'
+                    : '<span style="color:#ff4444;font-size:1.3em;">&#9679;</span> <span class="badge bg-secondary">Offline</span>';
+                html += `
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body py-2 px-3">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <strong>${c.username}</strong><br>
+                                        <small class="text-muted">${c.hospital}</small>
+                                    </div>
+                                    <div class="text-end">
+                                        ${statusDot}<br>
+                                        <small class="text-muted">Last: ${c.last_seen}</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        } catch (e) {
+            console.error("Error loading client status:", e);
+        }
+    }
+
+    // ===== User Management =====
     async function loadUsers() {
         try {
             const res = await fetch('/api/users', { credentials: 'same-origin' });
-            if (!res.ok) return; // Maybe not admin or error
+            if (!res.ok) return;
             const users = await res.json();
             const tbody = document.querySelector('#user-table tbody');
             tbody.innerHTML = '';
@@ -272,7 +319,6 @@
         const formData = new FormData(form);
         const data = Object.fromEntries(formData.entries());
 
-        // Convert hospital_id to int if present, else null
         if (data.hospital_id) data.hospital_id = parseInt(data.hospital_id);
         else delete data.hospital_id;
 
@@ -287,7 +333,6 @@
 
             if (res.ok) {
                 showToast(result.message, 'success');
-                // Close modal
                 const modalEl = document.getElementById('addUserModal');
                 const modal = bootstrap.Modal.getInstance(modalEl);
                 modal.hide();
@@ -320,6 +365,7 @@
         }
     }
 
+    // ===== Charts =====
     let accuracyChart, lossChart;
 
     function updateCharts(history) {
@@ -364,6 +410,7 @@
         }
     }
 
+    // ===== FL Control Buttons =====
     document.getElementById('start-round-btn').onclick = async () => {
         const res = await fetch('/api/fl/start_round', { method: 'POST', credentials: 'same-origin' });
         const data = await res.json();
@@ -406,6 +453,7 @@
                 showToast(data.error || 'Error aggregating', 'error');
             }
             updateStatus();
+            updateAuditLogs();
         } catch (e) {
             console.error(e);
             showToast('Network error. Please refresh and try again.', 'error');
@@ -427,6 +475,7 @@
                 showToast(data.error || 'Error resetting FL state', 'error');
             }
             updateStatus();
+            updateAuditLogs();
         } catch (e) {
             console.error(e);
             showToast('Network error. Please refresh and try again.', 'error');
@@ -439,58 +488,24 @@
         const data = await res.json();
         if (res.ok) {
             showToast(data.message, 'success');
-            // Refresh page to clear the table since it's rendered via Jinja template currently
-            setTimeout(() => window.location.reload(), 1000);
+            updateAuditLogs();
         } else {
             showToast(data.error || 'Error clearing logs', 'error');
         }
     };
 
-    document.getElementById('evaluate-btn').onclick = async () => {
-        const fileInput = document.getElementById('validation-file');
-        if (fileInput.files.length === 0) {
-            showToast("Please select a CSV file.", "error");
-            return;
-        }
-
-        const btn = document.getElementById('evaluate-btn');
-        btn.disabled = true;
-        btn.innerText = "Evaluating...";
-
-        const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
-
-        try {
-            const res = await fetch('/api/fl/evaluate', {
-                method: 'POST',
-                credentials: 'same-origin',
-                body: formData
-            });
-            const data = await res.json();
-
-            if (res.ok) {
-                document.getElementById('validation-results').classList.remove('d-none');
-                document.getElementById('val-acc').innerText = (data.accuracy * 100).toFixed(2) + '%';
-                document.getElementById('val-prec').innerText = (data.precision * 100).toFixed(2) + '%';
-                document.getElementById('val-rec').innerText = (data.recall * 100).toFixed(2) + '%';
-                document.getElementById('val-f1').innerText = (data.f1 * 100).toFixed(2) + '%';
-                showToast("Evaluation complete", "success");
-            } else {
-                showToast(data.error || "Evaluation failed", "error");
-            }
-        } catch (e) {
-            console.error(e);
-            showToast("Network error", "error");
-        } finally {
-            btn.disabled = false;
-            btn.innerText = "Evaluate Global Model";
-        }
-    };
-
-    document.getElementById('refresh-status-btn').onclick = updateStatus;
+    // ===== Auto-Refresh: Poll every 5 seconds =====
+    function refreshAll() {
+        updateStatus();
+        updateAuditLogs();
+        updateClientStatus();
+    }
 
     // Initial load
-    updateStatus();
+    refreshAll();
     loadUsers();
+
+    // Auto-refresh interval
+    setInterval(refreshAll, 5000);
 </script>
 {% endblock %}

@@ -43,7 +43,7 @@ class FLClient:
             print(f"Client {self.client_id}: Training on {len(X_train_round)} samples from {self.data_path}.")
 
         # Local training
-        metrics = self.model.train(X_train_round, y_train_round, epochs=5)
+        metrics = self.model.train(X_train_round, y_train_round, epochs=20)
         
         # Extract weights
         n_samples = len(self.X_train)
@@ -52,7 +52,7 @@ class FLClient:
         # Differential Privacy (Option 2)
         # Inject Laplacian/Gaussian noise to the weights before sending to server
         import torch
-        noise_multiplier = 0.01  # Small noise for demonstration
+        noise_multiplier = 0.001  # Reduced noise for better accuracy
         for k in weights.keys():
             # torch.randn_like creates a tensor of random numbers with the same size
             noise = torch.randn_like(weights[k]) * noise_multiplier
